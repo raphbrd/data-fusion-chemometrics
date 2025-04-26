@@ -1,6 +1,9 @@
+import pickle
+import logging
 import numpy as np
 import tensorly as tl
-import logging
+
+import tqdm
 
 
 class CMTF:
@@ -21,6 +24,8 @@ class CMTF:
         self.verbose = verbose
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
         self.logger = logging.getLogger(__name__)
+
+        self.deltas = []  # to track the convergence criteria
 
     def fit(self, tensors, matrices, rank, lmbda=1):
         """ Fit a coupled matrix tensor factorisation using ALS. It is assumed that the mode-0 is shared between
@@ -73,7 +78,8 @@ class CMTF:
         # to avoid numerical instability, adding small value to matrices diagonal
         eps = 1e-8 * np.eye(rank)
 
-        for it in range(self.max_iter):
+        pbar = tqdm.tqdm(range(self.max_iter), total=self.max_iter, desc="CMTF fit [delta U1 = 0]")
+        for it in pbar:
             old_U1 = U1.copy()
 
             # update U1 (common matrix) w.r.t. to each tensor
@@ -112,13 +118,31 @@ class CMTF:
                 Ps[j] = matrix.T @ U1 @ inv_U1_U1
 
             delta = tl.norm(U1 - old_U1)
+            self.deltas.append(delta)
             if self.verbose and (it + 1) % 100 == 0:
-                self.logger.info(f"[Iter {it + 1}] delta U1 = {delta:.8f}")
+                pbar.set_description(f"CMTF fit [delta U1 = {delta:.8f}]")
             if delta < self.tol:
                 self.logger.info(f"Early stopping, convergence reached after {it + 1} iterations.")
                 break
 
         return U1, U2s, U3s, Ps
+
+    def save_fit(self, fit_filename, fit, deltas_filename=None):
+        """ Save the fit to a file. """
+        with open(fit_filename, "wb") as f:
+            pickle.dump(fit, f)
+        self.logger.info(f"Fit saved to {fit_filename}")
+        if deltas_filename is not None:
+            with open(deltas_filename, "wb") as f:
+                pickle.dump(self.deltas, f)
+            self.logger.info(f"Deltas saved to {deltas_filename}")
+
+    def load_fit(self, fit_filename):
+        """ Load the fit from a file. """
+        with open(fit_filename, "rb") as f:
+            fit = pickle.load(f)
+        self.logger.info(f"Fit loaded from {fit_filename}")
+        return fit
 
     @staticmethod
     def _check_params(tensors, matrices):
