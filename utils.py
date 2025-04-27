@@ -73,6 +73,12 @@ def match_score(hat_tensor, gt_tensor, return_indices=False):
     match_score: float
         The match score.
     """
+    # Ensure that the tensors have the same number of components
+    n_cp_to_score = min(hat_tensor.shape[1], gt_tensor.shape[1])
+
+    hat_tensor = hat_tensor[:, :n_cp_to_score]
+    gt_tensor = gt_tensor[:, :n_cp_to_score]
+
     hat_tensor_norm = np.linalg.norm(hat_tensor, axis=0, keepdims=True)
     gt_tensor_norm = np.linalg.norm(gt_tensor, axis=0, keepdims=True)
 

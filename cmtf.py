@@ -1,15 +1,15 @@
+import os.path as op
 import pickle
 import logging
 import numpy as np
 import tensorly as tl
-
 import tqdm
 
 
 class CMTF:
     """ Coupled matrix-tensor factorisation using ALS. """
 
-    def __init__(self, tol=1e-6, max_iter=100, verbose=True):
+    def __init__(self, tol=1e-8, max_iter=100, verbose=True):
         """ Initialise the CMTF object.
 
         Parameters
@@ -64,11 +64,12 @@ class CMTF:
             f"Starting CMTF fit for rank = {rank}, lmbda = {lmbda} with {n_tensors} tensors and {n_matrices} matrices"
         )
 
-        # initialise the matrices
+        # initialize the matrices
         # each tensor X_i is modeled by [[U_1, U_2_i, U_3_i]]
         U1 = np.random.rand(n1, rank)
         U2s = [np.random.rand(tensor.shape[1], rank) for tensor in tensors]
         U3s = [np.random.rand(tensor.shape[2], rank) for tensor in tensors]
+        # each matrix has a P matrix factor
         Ps = [np.random.rand(matrix.shape[1], rank) for matrix in matrices]
 
         X1s = [tl.unfold(tensor, mode=0) for tensor in tensors]
@@ -77,11 +78,10 @@ class CMTF:
 
         # to avoid numerical instability, adding small value to matrices diagonal
         eps = 1e-8 * np.eye(rank)
+        prev_loss = np.inf
 
         pbar = tqdm.tqdm(range(self.max_iter), total=self.max_iter, desc="CMTF fit [delta U1 = 0]")
         for it in pbar:
-            old_U1 = U1.copy()
-
             # update U1 (common matrix) w.r.t. to each tensor
             # We write the solution of the least squares problem as:
             # U_1^\hat = G^{-1} @ H <=> G @ U^T = H^T
@@ -117,15 +117,37 @@ class CMTF:
                 matrix = matrices[j]
                 Ps[j] = matrix.T @ U1 @ inv_U1_U1
 
-            delta = tl.norm(U1 - old_U1)
+            # check relative reconstructed error change for early stopping
+            current_loss = self.compute_iteration_loss(tensors, matrices, U1, U2s, U3s, Ps)
+            if it > 0:
+                delta = abs(current_loss - prev_loss) / prev_loss
+            else:
+                delta = float("inf")
+            prev_loss = current_loss
             self.deltas.append(delta)
             if self.verbose and (it + 1) % 100 == 0:
-                pbar.set_description(f"CMTF fit [delta U1 = {delta:.8f}]")
+                pbar.set_description(f"CMTF fit [delta Loss = {delta:.8f}]")
             if delta < self.tol:
-                self.logger.info(f"Early stopping, convergence reached after {it + 1} iterations.")
+                pbar.close()
+                self.logger.info(f"Early stopping, convergence reached after {it + 1} iterations, delta = {delta:.8f}.")
                 break
 
         return U1, U2s, U3s, Ps
+
+    @staticmethod
+    def compute_iteration_loss(tensors, matrices, U1, U2_list, U3_list, Ps):
+        """ Compute the convergence criteria for the CMTF algorithm at a given iteration."""
+        loss = 0
+        for i in range(len(tensors)):
+            # tensorly expect a tuple (weights, factors)
+            weights = np.ones(U1.shape[1])
+            factors = [U1, U2_list[i], U3_list[i]]
+            X_reconstructed = tl.cp_to_tensor((weights, factors))
+            loss += tl.norm(tensors[i] - X_reconstructed) ** 2
+        for j in range(len(matrices)):
+            loss += tl.norm(matrices[j] - U1 @ Ps[j].T) ** 2
+
+        return loss
 
     def save_fit(self, fit_filename, fit, deltas_filename=None):
         """ Save the fit to a file. """
@@ -139,6 +161,11 @@ class CMTF:
 
     def load_fit(self, fit_filename):
         """ Load the fit from a file. """
+        if not op.exists(fit_filename):
+            raise FileNotFoundError(
+                f"File {fit_filename} does not exist. Please check the path or fit the decomposition first"
+            )
+
         with open(fit_filename, "rb") as f:
             fit = pickle.load(f)
         self.logger.info(f"Fit loaded from {fit_filename}")
