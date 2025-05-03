@@ -6,6 +6,8 @@ import numpy as np
 def plot_match_scores(scores, x_ticks=None, x_tick_labels=None, labels=None, colors=None, ax=None, show=False):
     if ax is None:
         fig, ax = plt.subplots(figsize=(2.75, 2.25), dpi=150)
+    else:
+        fig = ax.figure
 
     if x_ticks is None:
         x_ticks = np.arange(len(scores))
