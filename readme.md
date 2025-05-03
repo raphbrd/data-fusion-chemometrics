@@ -6,6 +6,15 @@ This repository contains the code and data used for the analysis of the data fus
 from Acar et al. (2011, 2014). The main goal is to implement coupled matrix tensor factorization (CMTF) using an
 ALS-based optimization.
 
+## Data organization
+
+- Original data is from Acar et al. (2014) and is located in the `./Acar_data` directory.
+- Output data (model fit saves) are located in the `./output_data` directory.
+- Figures are located in the `./figures` directory.
+
+Both `output_data` and `figures` directories are created by the `run_cmtf_experiments.py` script or the 
+jupyter notebook if they do not exist.
+
 ## Code organization
 
 - `run_cmtf_experiments.py`: Entry point to run the CMTF experiments. It is recommended to run it from the command line.

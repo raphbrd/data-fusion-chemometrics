@@ -172,6 +172,7 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
 if __name__ == "__main__":
     import argparse
     import logging
+    import os
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
 
@@ -187,16 +188,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     logging.info(f"Using data path:   {args.data_path}")
     logging.info(f"Using figure path: {args.fig_path}")
+    if not op.exists(args.fig_path):
+        os.makedirs(args.fig_path)
+        logging.info(f"Created figure directory: {args.fig_path}")
     logging.info(f"Using output path: {args.output_path}")
-
-    if args.parafac:
-        main_parafac(
-            data_path=args.data_path,
-            fig_path=args.fig_path,
-            output_path=args.output_path,
-            rank=args.rank,
-            max_iter=args.max_iter
-        )
+    if not op.exists(args.output_path):
+        os.makedirs(args.output_path)
+        logging.info(f"Created output directory: {args.output_path}")
 
     if args.cmtf:
         main_cmtf(
@@ -206,8 +204,8 @@ if __name__ == "__main__":
             max_iter=args.max_iter
         )
 
-    if not args.cmtf and not args.parafac:
-        logging.warning("No decomposition method specified. Use either --parafac or --cmtf to fit a model.")
+    if not args.cmtf:
+        logging.warning("No decomposition method specified. Use --cmtf to fit a model.")
 
     if args.plot:
         plot_cmtf_results(
