@@ -9,7 +9,7 @@ import tqdm
 class CMTF:
     """ Coupled matrix-tensor factorisation using ALS. """
 
-    def __init__(self, tol=1e-8, max_iter=100, verbose=True):
+    def __init__(self, tol=1e-8, max_iter=1000, verbose=True):
         """ Initialise the CMTF object.
 
         Parameters
@@ -27,7 +27,7 @@ class CMTF:
 
         self.deltas = []  # to track the convergence criteria
 
-    def fit(self, tensors, matrices, rank, lmbda=1):
+    def fit(self, tensors, matrices, rank):
         """ Fit a coupled matrix tensor factorisation using ALS. It is assumed that the mode-0 is shared between
         the tensor and the matrix
 
@@ -42,8 +42,6 @@ class CMTF:
             A list of matrices of shape (n1, q_i).
         rank: int
             The rank of the decomposition.
-        lmbda: int
-            The coupling parameter (the lambda in the optim criterion)
 
         Returns
         -------
@@ -57,12 +55,11 @@ class CMTF:
             The coupling matrix of the decomposition.
         """
         self._check_params(tensors, matrices)
+        self.deltas = []  # to track the convergence criteria
         n_tensors = len(tensors)
         n_matrices = len(matrices)
         n1 = tensors[0].shape[0]
-        self.logger.info(
-            f"Starting CMTF fit for rank = {rank}, lmbda = {lmbda} with {n_tensors} tensors and {n_matrices} matrices"
-        )
+        self.logger.info(f"Starting CMTF fit for rank = {rank}  with {n_tensors} tensors and {n_matrices} matrices")
 
         # initialize the matrices
         # each tensor X_i is modeled by [[U_1, U_2_i, U_3_i]]
@@ -77,7 +74,7 @@ class CMTF:
         X3s = [tl.unfold(tensor, mode=2) for tensor in tensors]
 
         # to avoid numerical instability, adding small value to matrices diagonal
-        eps = 1e-8 * np.eye(rank)
+        eps = 1e-12 * np.eye(rank)
         prev_loss = np.inf
 
         pbar = tqdm.tqdm(range(self.max_iter), total=self.max_iter, desc="CMTF fit [delta U1 = 0]")
@@ -95,8 +92,8 @@ class CMTF:
                 H += X1s[i] @ kr_prod
             for j in range(n_matrices):
                 P = Ps[j]
-                G += lmbda * (P.T @ P)
-                H += lmbda * (matrices[j] @ P)
+                G += (P.T @ P)
+                H += (matrices[j] @ P)
             U1 = np.linalg.solve(G + eps, H.T).T
 
             # update U2, U3, ... for each tensor

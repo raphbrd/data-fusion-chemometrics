@@ -53,38 +53,6 @@ def load_and_preprocess_data(data_path):
     return eem, nmr, lcms, gt_concentrations, concentrations
 
 
-def main_parafac(data_path, fig_path, output_path, rank, max_iter):
-    eem, nmr, lcms, gt_concentrations, concentrations = load_and_preprocess_data(data_path)
-
-    print("Computing PARAFAC decomposition on each tensor")
-    fac_eem = compute_parafac(eem, rank)
-    fac_nmr = compute_parafac(nmr, rank)
-    u1_eem, u1_nmr = fac_eem[1][0], fac_nmr[1][0]
-    # change for PCA
-    svd_lcms = np.linalg.svd(lcms, full_matrices=False)
-    v1_lcms = svd_lcms[-1][:, :rank]
-    print("PARAFAC done.")
-
-    scores = []
-    for factor in [u1_nmr, u1_eem, v1_lcms]:
-        estimated_concentration = normalize_pos_factors(factor)
-        u1_score = match_score(gt_concentrations, estimated_concentration)
-        scores.append(u1_score)
-
-    fig = plot_match_scores(
-        scores,
-        labels=["NMR", "EEM", "LCMS"],
-        x_ticks=np.arange(5),
-        x_tick_labels=concentrations.columns,
-        colors=mpl.colormaps['Dark2'].colors[3:],
-        show=False,
-    )
-    plt.gca().tick_params(labelrotation=45)
-    fig.tight_layout()
-    fig.savefig(op.join(fig_path, "one_way_data_decomposition_comparison.pdf"), dpi=300)
-    plt.close(fig)
-
-
 def main_cmtf(data_path, output_path, rank, max_iter):
     eem, nmr, lcms, gt_concentrations, concentrations = load_and_preprocess_data(data_path)
 
@@ -121,7 +89,32 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
     concentrations = pd.read_table(op.join(data_path, "concentrations.txt"), sep="\s+")
     gt_concentrations = normalize_pos_factors(concentrations.values)
 
+    colors = mpl.colormaps['Dark2'].colors[:3]
+
     cmft = CMTF(max_iter=max_iter)
+
+    # checking the convergence of the algorithm
+    deltas_eem = np.array(cmft.load_fit(op.join(output_path, f"cmtf_eem_rank_{rank}_{max_iter}_iters_deltas.pkl")))
+    deltas_nmr = np.array(cmft.load_fit(op.join(output_path, f"cmtf_nmr_rank_{rank}_{max_iter}_iters_deltas.pkl")))
+    deltas_3way = np.array(cmft.load_fit(op.join(output_path, f"cmtf_3way_rank_{rank}_{max_iter}_iters_deltas.pkl")))
+
+    fig, ax = plt.subplots(figsize=(3.75, 2), dpi=150)
+    for delta, label, color in zip(
+            [deltas_eem, deltas_nmr, deltas_3way],
+            ["EEM+LCMS", "NMR+LCMS", "3-way"],
+            colors,
+    ):
+        ax.plot(np.arange(1, len(delta) + 1), delta, label=label, color=color)
+    ax.set_xlim(0, max_iter)
+    ax.set_xticks(np.arange(0, max_iter + 1, max_iter // 5))
+    ax.set_yscale("log")
+    ax.set_xlabel("Iteration", fontsize=10)
+    ax.set_ylabel(r"relative log loss", fontsize=8)
+    ax.legend(loc="upper right", fontsize=6, frameon=False)
+    fig.tight_layout()
+    fig.savefig(op.join(fig_path, f"cmtf_convergence_rank_{rank}_{max_iter}_iters.pdf"), dpi=300)
+    plt.close()
+
     out_eem_lcms = cmft.load_fit(op.join(output_path, f"cmtf_eem_rank_{rank}_{max_iter}_iters.pkl"))
     out_nmr_lcms = cmft.load_fit(op.join(output_path, f"cmtf_nmr_rank_{rank}_{max_iter}_iters.pkl"))
     out_3way = cmft.load_fit(op.join(output_path, f"cmtf_3way_rank_{rank}_{max_iter}_iters.pkl"))
@@ -131,13 +124,21 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
     u1_cmtf_nmr = out_nmr_lcms[0]
     u1_cmtf_3way = out_3way[0]
 
-    colors = mpl.colormaps['Dark2'].colors[:3]
+    cond_id = f"rank_{rank}_{max_iter}_iters"
     run_name = ["cmtf_eem", "cmtf_nmr", "cmtf_3way"]
-    scores = []
+    results = pd.DataFrame(dict(
+        method=["cmtf_eem", "cmtf_nmr", "cmtf_3way"],
+        min_delta=[deltas_eem.min(), deltas_nmr.min(), deltas_3way.min()],
+        score_cp1=np.nan,
+        score_cp2=np.nan,
+        score_cp3=np.nan,
+        score_cp4=np.nan,
+        score_cp5=np.nan,
+    ))
     for run_idx, factor in enumerate([u1_cmtf_eem, u1_cmtf_nmr, u1_cmtf_3way]):
         estimated_concentration = normalize_pos_factors(factor)
         u1_score, _, col_inds = match_score(gt_concentrations, estimated_concentration, return_indices=True)
-        scores.append(u1_score)
+        results.iloc[run_idx, 2:] = u1_score
 
         fig = plot_concentrations_per_mixtures(
             gt_concentrations,
@@ -147,10 +148,10 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
             color_gt="black",
             color_hat=colors[run_idx],
         )
-        fig.savefig(op.join(fig_path, f"{run_name[run_idx]}_concentrations.pdf"), dpi=300)
+        fig.savefig(op.join(fig_path, f"{run_name[run_idx]}_concentrations_{cond_id}.pdf"), dpi=300)
 
     fig = plot_match_scores(
-        scores,
+        results.iloc[:, 2:].values,
         labels=["EEM+LCMS", "NMR+LCMS", "3-way"],
         x_ticks=np.arange(5),
         x_tick_labels=concentrations.columns,
@@ -159,8 +160,13 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
     )
     plt.gca().tick_params(labelrotation=45)
     fig.tight_layout()
-    fig.savefig(op.join(fig_path, f"two_way_vs_three_way_data_decomposition_comparison_rank_{rank}.pdf"), dpi=300)
+    fig.savefig(
+        op.join(fig_path, f"two_way_vs_three_way_data_decomposition_comparison_{cond_id}.pdf"),
+        dpi=300
+    )
     plt.close(fig)
+
+    results.to_csv(op.join(fig_path, f"cmtf_results_{cond_id}.csv"), index=False)
 
 
 if __name__ == "__main__":
@@ -177,6 +183,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-iter", type=int, required=True, help="Maximum number of iterations")
     parser.add_argument("--parafac", action="store_true", help="Compute the PARAFAC decomposition")
     parser.add_argument("--cmtf", action="store_true", help="Compute the CMTF decomposition")
+    parser.add_argument("--plot", action="store_true", help="Plot output of previous computations")
     args = parser.parse_args()
     logging.info(f"Using data path:   {args.data_path}")
     logging.info(f"Using figure path: {args.fig_path}")
@@ -200,12 +207,13 @@ if __name__ == "__main__":
         )
 
     if not args.cmtf and not args.parafac:
-        logging.warning("No decomposition method specified. Use either --parafac or --cmtf.")
+        logging.warning("No decomposition method specified. Use either --parafac or --cmtf to fit a model.")
 
-    plot_cmtf_results(
-        data_path=args.data_path,
-        fig_path=args.fig_path,
-        output_path=args.output_path,
-        max_iter=args.max_iter,
-        rank=args.rank
-    )
+    if args.plot:
+        plot_cmtf_results(
+            data_path=args.data_path,
+            fig_path=args.fig_path,
+            output_path=args.output_path,
+            max_iter=args.max_iter,
+            rank=args.rank
+        )
