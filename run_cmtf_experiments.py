@@ -105,6 +105,7 @@ def plot_cmtf_results(data_path, fig_path, output_path, max_iter, rank):
             colors,
     ):
         ax.plot(np.arange(1, len(delta) + 1), delta, label=label, color=color)
+    ax.axvline(x=10000, color="grey", linestyle="--", linewidth=1)
     ax.set_xlim(0, max_iter)
     ax.set_xticks(np.arange(0, max_iter + 1, max_iter // 5))
     ax.set_yscale("log")
@@ -182,7 +183,6 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, default="./output_data", help="Path to save the output data")
     parser.add_argument("--rank", type=int, required=True, help="Rank of the decomposition")
     parser.add_argument("--max-iter", type=int, required=True, help="Maximum number of iterations")
-    parser.add_argument("--parafac", action="store_true", help="Compute the PARAFAC decomposition")
     parser.add_argument("--cmtf", action="store_true", help="Compute the CMTF decomposition")
     parser.add_argument("--plot", action="store_true", help="Plot output of previous computations")
     args = parser.parse_args()
@@ -215,3 +215,7 @@ if __name__ == "__main__":
             max_iter=args.max_iter,
             rank=args.rank
         )
+        results = pd.read_csv(op.join(args.fig_path, f"cmtf_results_rank_{args.rank}_{args.max_iter}_iters.csv"))
+        results = results.set_index("method").iloc[:, 1:]  # taking only cp_scores column
+        logging.info("Results of the CMTF decomposition (average score):")
+        print(results.mean(axis=1))  # average performance over the 5 components
